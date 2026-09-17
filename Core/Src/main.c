@@ -44,9 +44,9 @@ int ewma_filter_C(int new_data, int old_output, int alpha_percent);
 UART_HandleTypeDef huart1;
 
 typedef enum {
-    WEARABLE_NORMAL,
-    WEARABLE_CONFIRMING,
-    WEARABLE_FALL_CONFIRMED
+    NORMAL,
+    CONFIRMING,
+    FALL_CONFIRMED
 } WearableState;
 
 static const char *const state_names[] = {
@@ -76,7 +76,7 @@ int main(void)
     int gyro_ewma_c[3]  = {0, 0, 0};
 
     unsigned long sample_number = 0;
-    WearableState state = WEARABLE_NORMAL;
+    WearableState state = NORMAL;
     uint32_t startup_at = HAL_GetTick();
     uint32_t led_toggled_at = startup_at;
     uint32_t low_g_since = 0, rotation_since = 0, confirming_since = 0, ack_since = 0;
@@ -158,7 +158,7 @@ int main(void)
         float accel_g = norm(accel_axes_g);
         float angular_dps = norm(gyro_dps);
 
-        if (state == WEARABLE_NORMAL && now - startup_at >= STARTUP_SETTLE_MS) {
+        if (state == NORMAL && now - startup_at >= STARTUP_SETTLE_MS) {
             /* Separate timers: alternating brief low-g and rotation readings
              * must not combine into one sustained trigger. */
             if (accel_g < LOW_G_THRESHOLD_G) {
@@ -176,30 +176,30 @@ int main(void)
 
             if ((low_g_active && now - low_g_since >= TRIGGER_HOLD_MS) ||
                 (rotation_active && now - rotation_since >= TRIGGER_HOLD_MS)) {
-                state = WEARABLE_CONFIRMING;
+                state = CONFIRMING;
                 confirming_since = now;
                 low_g_active = false;
                 rotation_active = false;
             }
         }
 
-        if (state == WEARABLE_CONFIRMING) {
+        if (state == CONFIRMING) {
             if (now - confirming_since >= CONFIRM_TIMEOUT_MS) {
-                state = WEARABLE_NORMAL;
+                state = NORMAL;
             } else if (accel_g >= IMPACT_THRESHOLD_G) {
                 /* Confirm immediately on a sampled impact. No rotation is
                  * required if sustained low-g caused the initial trigger. */
-                state = WEARABLE_FALL_CONFIRMED;
+                state = FALL_CONFIRMED;
             }
         }
 
-        if (state == WEARABLE_FALL_CONFIRMED) {
+        if (state == FALL_CONFIRMED) {
         	// If BUTTON_USER is pressed down for more than ACK_HOLD_MS, reset to NORMAL state
             if (BSP_PB_GetState(BUTTON_USER) == GPIO_PIN_RESET) {
                 if (!ack_active) ack_since = now;
                 ack_active = true;
                 if (now - ack_since >= ACK_HOLD_MS) {
-                    state = WEARABLE_NORMAL;
+                    state = NORMAL;
                     startup_at = now;
                     ack_active = false;
                 }
@@ -209,9 +209,9 @@ int main(void)
         }
 
         /* LED timing never sets the sensor delay. A confirmed fall stays ON. */
-        uint32_t blink_ms = (state == WEARABLE_CONFIRMING)
+        uint32_t blink_ms = (state == CONFIRMING)
                             ? FALL_LED_DELAY_MS : NORMAL_LED_DELAY_MS;
-        if (state == WEARABLE_FALL_CONFIRMED || state != previous_state) {
+        if (state == FALL_CONFIRMED || state != previous_state) {
             BSP_LED_On(LED2);
             led_toggled_at = now;
         } else if (now - led_toggled_at >= blink_ms) {
