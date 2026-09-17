@@ -20,17 +20,18 @@
 /*--------------------------- Configuration ----------------------------------*/
 /* Parameters apply to the assembly-filtered readings. The sensors run at 52 Hz.
  * Alpha 75% helps retain the short low-g interval and landing peak of a drop. */
-#define EWMA_ALPHA_ACCEL_PERCENT    75
+#define EWMA_ALPHA_ACCEL_PERCENT    85
 #define EWMA_ALPHA_GYRO_PERCENT     35
 #define SAMPLE_DELAY_MS             20U
-#define UART_REPORT_EVERY_SAMPLES   10U  /* Change to 5 for more frequent reports. */
+#define REPORT_DISABLE				 0
+#define UART_REPORT_EVERY_SAMPLES    5U  /* Change to 5 for more frequent reports. */
 #define NORMAL_LED_DELAY_MS       1000U
 #define FALL_LED_DELAY_MS          150U
 #define STARTUP_SETTLE_MS          500U  /* Ignore initial zero EWMA history. */
-#define LOW_G_THRESHOLD_G           0.60f
+#define LOW_G_THRESHOLD_G          0.60f
 #define ROTATION_THRESHOLD_DPS    100.0f
-#define TRIGGER_HOLD_MS             60U  /* Either condition must last this long. */
-#define IMPACT_THRESHOLD_G          1.75f
+#define TRIGGER_HOLD_MS             70U  /* Either condition must last this long. */
+#define IMPACT_THRESHOLD_G         1.65f
 #define CONFIRM_TIMEOUT_MS        1000U  /* No impact in this window: return normal. */
 #define ACK_HOLD_MS               2000U
 
@@ -60,7 +61,6 @@ int main(void)
 {
     HAL_Init();
     UART1_Init();
-
     BSP_LED_Init(LED2);
     BSP_ACCELERO_Init();
     BSP_GYRO_Init();
@@ -145,9 +145,7 @@ int main(void)
             (gyro_ewma_asm[1] != gyro_ewma_c[1]) ||
             (gyro_ewma_asm[2] != gyro_ewma_c[2]))
         {
-            if (report_due) {
-                UART_Send("WARNING: Assembly and C EWMA outputs do not match.\r\n");
-            }
+        	UART_Send("WARNING: Assembly and C EWMA outputs do not match.\r\n");
         }
 
         /**************** Elderly wearable state logic starts here *************
@@ -221,20 +219,22 @@ int main(void)
             led_toggled_at = now;
         }
 
-        char buffer[320];
-        if (state != previous_state) {
-            snprintf(buffer, sizeof(buffer), "State: %s\r\n", state_names[state]);
-            UART_Send(buffer);
-        }
-        if (report_due) {
-            snprintf(buffer, sizeof(buffer),
-                     "Sample %lu [%s] |A|=%.2fg |W|=%.1fdps\r\n"
-                     "Accel EWMA ASM [m/s^2]: X=%8.3f Y=%8.3f Z=%8.3f\r\n"
-                     "Gyro  EWMA ASM [dps]  : X=%8.3f Y=%8.3f Z=%8.3f\r\n",
-                     sample_number, state_names[state], accel_g, angular_dps,
-                     accel_mps2[0], accel_mps2[1], accel_mps2[2],
-                     gyro_dps[0], gyro_dps[1], gyro_dps[2]);
-            UART_Send(buffer);
+        if (!REPORT_DISABLE) {
+			char buffer[320];
+			if (state != previous_state) {
+				snprintf(buffer, sizeof(buffer), "State: %s\r\n", state_names[state]);
+				UART_Send(buffer);
+			}
+			if (report_due) {
+				snprintf(buffer, sizeof(buffer),
+						 "Sample %lu [%s] |A|=%.2fg |W|=%.1fdps\r\n"
+						 "Accel EWMA ASM [m/s^2]: X=%8.3f Y=%8.3f Z=%8.3f\r\n"
+						 "Gyro  EWMA ASM [dps]  : X=%8.3f Y=%8.3f Z=%8.3f\r\n",
+						 sample_number, state_names[state], accel_g, angular_dps,
+						 accel_mps2[0], accel_mps2[1], accel_mps2[2],
+						 gyro_dps[0], gyro_dps[1], gyro_dps[2]);
+				UART_Send(buffer);
+			}
         }
 
         /* Simple pacing: processing and occasional UART output add to this
