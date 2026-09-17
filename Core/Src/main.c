@@ -123,7 +123,7 @@ int main(void)
         }
 
         /* Accelerometer filtered readings are in meters per second squared. */
-        float accel_mps2[3] = {
+        float accel_axes_g[3] = {
             accel_ewma_asm[0] / 1000.0f,
             accel_ewma_asm[1] / 1000.0f,
             accel_ewma_asm[2] / 1000.0f
@@ -155,7 +155,7 @@ int main(void)
          *********************************************************************/
         uint32_t now = HAL_GetTick();
         WearableState previous_state = state;
-        float accel_g = norm(accel_mps2);
+        float accel_g = norm(accel_axes_g);
         float angular_dps = norm(gyro_dps);
 
         if (state == WEARABLE_NORMAL && now - startup_at >= STARTUP_SETTLE_MS) {
@@ -228,10 +228,10 @@ int main(void)
 			if (report_due) {
 				snprintf(buffer, sizeof(buffer),
 						 "Sample %lu [%s] |A|=%.2fg |W|=%.1fdps\r\n"
-						 "Accel EWMA ASM [m/s^2]: X=%8.3f Y=%8.3f Z=%8.3f\r\n"
-						 "Gyro  EWMA ASM [dps]  : X=%8.3f Y=%8.3f Z=%8.3f\r\n",
+						 "Accel [g]  : X=%8.3f Y=%8.3f Z=%8.3f\r\n"
+						 "Gyro  [dps]: X=%8.3f Y=%8.3f Z=%8.3f\r\n",
 						 sample_number, state_names[state], accel_g, angular_dps,
-						 accel_mps2[0], accel_mps2[1], accel_mps2[2],
+						 accel_axes_g[0], accel_axes_g[1], accel_axes_g[2],
 						 gyro_dps[0], gyro_dps[1], gyro_dps[2]);
 				UART_Send(buffer);
 			}
