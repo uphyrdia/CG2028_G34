@@ -700,11 +700,18 @@ static ES_WIFI_Status_t AT_RequestReceiveData(ES_WIFIObject_t *Obj, uint8_t* cmd
   uint8_t *p=Obj->CmdData;
   
   LOCK_WIFI();  
+  *ReadData = 0;
   if(Obj->fops.IO_Send(cmd, strlen((char*)cmd), Obj->Timeout) > 0)
   {
     len = Obj->fops.IO_Receive(p, 0 , Obj->Timeout);
+    /* Do not parse stale data after an I/O failure or a short response. */
+    if (len < 2 || len >= ES_WIFI_DATA_SIZE) {
+      UNLOCK_WIFI();
+      return ES_WIFI_STATUS_IO_ERROR;
+    }
     if ((p[0]!='\r') || (p[1]!='\n'))
     {
+     UNLOCK_WIFI();
      return  ES_WIFI_STATUS_IO_ERROR;
     }
     len-=2;
@@ -712,9 +719,18 @@ static ES_WIFI_Status_t AT_RequestReceiveData(ES_WIFIObject_t *Obj, uint8_t* cmd
     if (len >= AT_OK_STRING_LEN)
     {
      while(len && (p[len-1]==0x15)) len--;
+     if (len < AT_OK_STRING_LEN) {
+       UNLOCK_WIFI();
+       return ES_WIFI_STATUS_IO_ERROR;
+     }
      p[len] = '\0';
      if(strstr( (char*) p + len - AT_OK_STRING_LEN, AT_OK_STRING))
      {
+       /* Respect the caller's capacity even if the module returns extra data. */
+       if ((len - AT_OK_STRING_LEN) > Reqlen) {
+         UNLOCK_WIFI();
+         return ES_WIFI_STATUS_IO_ERROR;
+       }
        *ReadData = len - AT_OK_STRING_LEN;
        memcpy(pdata, p, *ReadData);
        UNLOCK_WIFI();

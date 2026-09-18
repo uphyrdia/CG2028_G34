@@ -7,6 +7,7 @@
 
 /*--------------------------- Includes ---------------------------------------*/
 #include "main.h"
+#include "thingsboard.h"
 #include "../../Drivers/BSP/B-L4S5I-IOT01/stm32l4s5i_iot01_accelero.h"
 #include "../../Drivers/BSP/B-L4S5I-IOT01/stm32l4s5i_iot01_gyro.h"
 
@@ -66,6 +67,15 @@ int main(void)
     BSP_GYRO_Init();
     BSP_LED_Off(LED2);
     BSP_PB_Init(BUTTON_USER, BUTTON_MODE_GPIO); /* Active-low acknowledgement. */
+
+    /* Joining the hotspot can take seconds. Do it before starting the sampling
+     * timers; a missing network must not stop the local fall detector. */
+    UART_Send("Wi-Fi: initialising ThingsBoard connection...\r\n");
+    if (ThingsBoard_Init()) {
+        UART_Send("Wi-Fi: hotspot connected, ThingsBoard address resolved.\r\n");
+    } else {
+        UART_Send("Wi-Fi: unavailable or unconfigured; local detection active.\r\n");
+    }
 
     /* Previous EWMA outputs. The first test/application sample starts from 0. */
     int accel_ewma_asm[3] = {0, 0, 0};
@@ -217,6 +227,37 @@ int main(void)
         } else if (now - led_toggled_at >= blink_ms) {
             BSP_LED_Toggle(LED2);
             led_toggled_at = now;
+        }
+
+        /* LED has already been latched ON above. Upload once on this transition,
+         * not on every sample while the fall remains latched. Networking runs
+         * only on fall/acknowledgement transitions, so button polling and
+         * sampling pause during the attempt, but the LED stays ON throughout. */
+        if (state == FALL_CONFIRMED && previous_state != FALL_CONFIRMED) {
+            UART_Send("Wi-Fi: sending confirmed fall...\r\n");
+            if (ThingsBoard_SendFall(accel_g, angular_dps, now)) {
+                UART_Send("ThingsBoard: fall accepted (HTTP 200).\r\n");
+            } else {
+                UART_Send("ThingsBoard: fall delivery not confirmed; LED stays ON.\r\n");
+            }
+            /* A button press during a blocking upload was not continuously
+             * sampled. Start its hold timer afresh rather than counting that gap. */
+            ack_active = false;
+        } else if (state == NORMAL && previous_state == FALL_CONFIRMED) {
+            /* Only an accepted USER-button hold takes this path. A confirming
+             * timeout must not send a recovery update. Give immediate local
+             * feedback before the blocking request, even if the network fails. */
+            BSP_LED_Off(LED2);
+            UART_Send("Wi-Fi: sending normal state...\r\n");
+            if (ThingsBoard_SendNormal()) {
+                UART_Send("ThingsBoard: normal state accepted (HTTP 200).\r\n");
+            } else {
+                UART_Send("ThingsBoard: normal delivery not confirmed; local state is NORMAL.\r\n");
+            }
+            /* Resume slow blinking and allow fresh samples to settle after the
+             * network pause, rather than counting that pause as sampled time. */
+            startup_at = HAL_GetTick();
+            led_toggled_at = startup_at;
         }
 
         if (!REPORT_DISABLE) {

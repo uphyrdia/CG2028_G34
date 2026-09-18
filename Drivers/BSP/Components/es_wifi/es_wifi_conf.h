@@ -73,14 +73,14 @@
 #define ES_WIFI_DATA_SIZE                           1400
 #define ES_WIFI_MAX_DETECTED_AP                     10
    
-#define ES_WIFI_TIMEOUT                             0xFFFF
+#define ES_WIFI_TIMEOUT                             30000 /* Command timeout in ms. */
                                                     
 #define ES_WIFI_USE_PING                            1
 #define ES_WIFI_USE_AWS                             0
 #define ES_WIFI_USE_FIRMWAREUPDATE                  0
 #define ES_WIFI_USE_WPS                             0
                                                     
-#define ES_WIFI_USE_SPI                             0    
+#define ES_WIFI_USE_SPI                             1    /* Onboard module uses SPI3. */
 #define ES_WIFI_USE_UART                            (!ES_WIFI_USE_SPI)   
    
 
