@@ -72,7 +72,7 @@ int main(void)
      * timers; a missing network must not stop the local fall detector. */
     UART_Send("Wi-Fi: initialising ThingsBoard connection...\r\n");
     if (ThingsBoard_Init()) {
-        UART_Send("Wi-Fi: hotspot connected, ThingsBoard address resolved.\r\n");
+        UART_Send("Wi-Fi: connected, ThingsBoard address resolved.\r\n");
     } else {
         UART_Send("Wi-Fi: unavailable or unconfigured; local detection active.\r\n");
     }

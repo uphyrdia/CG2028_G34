@@ -31,7 +31,7 @@ bool ThingsBoard_SendFall(float acceleration_g, float angular_velocity_dps,
 {
     char json[192];
     int json_length = snprintf(json, sizeof(json),
-        "{\"state\":\"FALL_CONFIRMED\",\"fall_active\":true,\"acceleration_g\":%.3f,"
+        "{\"state\":\"FALL_CONFIRMED\",\"acceleration_g\":%.3f,"
         "\"angular_velocity_dps\":%.3f,\"detected_at_uptime_ms\":%lu}",
         (double)acceleration_g, (double)angular_velocity_dps,
         (unsigned long)detected_at_ms);
@@ -42,8 +42,8 @@ bool ThingsBoard_SendFall(float acceleration_g, float angular_velocity_dps,
 bool ThingsBoard_SendNormal(void)
 {
     /* Update the current state while retaining the previous fall's history and
-     * sensor snapshot. A ThingsBoard alarm can clear when fall_active is false. */
-    return ThingsBoard_SendTelemetry("{\"state\":\"NORMAL\",\"fall_active\":false}");
+     * sensor snapshot. The ThingsBoard alarm rule clears when state is NORMAL. */
+    return ThingsBoard_SendTelemetry("{\"state\":\"NORMAL\"}");
 }
 
 static bool ThingsBoard_SendTelemetry(const char *json)

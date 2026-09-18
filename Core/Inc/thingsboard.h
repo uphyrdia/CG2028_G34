@@ -7,9 +7,9 @@
 /* Fill these in before flashing. Empty SSID/token skips network operations.
  * Use the phone hotspot's credentials, not the home desktop's Wi-Fi details.
  * Do not commit real passwords or access tokens to a public repository. */
-#define WIFI_SSID                   "SINGTEL-9C20"
-#define WIFI_PASSWORD               "x9LvhWupF4Rz"
-#define THINGSBOARD_ACCESS_TOKEN    "804rcl3a1oxmcx3ock9k"
+#define WIFI_SSID                   "utakata"
+#define WIFI_PASSWORD               "phrolova"
+#define THINGSBOARD_ACCESS_TOKEN    "hifratol541vfu6wfmi6" // "804rcl3a1oxmcx3ock9k"
 #define WIFI_SECURITY               WIFI_ECN_WPA2_PSK
 
 /* Hostname only: no http:// prefix or path. Match the server hosting your device.
