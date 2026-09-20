@@ -19,13 +19,23 @@
 #include <math.h>
 
 /*--------------------------- Configuration ----------------------------------*/
-/* Both sensors produce measurements at 104 Hz. The accelerometer range is
- * +/-8 g per axis. Application readings are in g and degrees per second. */
-#define EWMA_ALPHA_ACCEL_PERCENT    60
-#define EWMA_ALPHA_GYRO_PERCENT     20
-#define SAMPLE_DELAY_MS              8U
-#define REPORT_DISABLE				 1
-#define UART_REPORT_EVERY_SAMPLES   10U
+/* Both sensors produce measurements at 208 Hz (one update every 4.81 ms).
+ * The paced application loop is slower; sensor ODR is not the loop rate.
+ * The accelerometer range is +/-8 g per axis. Application readings are in g
+ * and degrees per second. */
+#define EWMA_ALPHA_ACCEL_PERCENT    50
+#define EWMA_ALPHA_GYRO_PERCENT     15
+/* About 4 ms of acquisition/processing plus HAL's tick-rounded 1 ms delay
+ * gives roughly 5-6 ms per loop, longer than the 4.81 ms sensor period.
+ * Recheck this pacing if CPU speed, I2C timing or processing changes. */
+#define SAMPLE_DELAY_MS              4U
+#define REPORT_DISABLE				 1  /* Disable routine sensor reports while measuring. */
+/* Roughly preserve the old reporting interval as the loop rate doubles. */
+#define UART_REPORT_EVERY_SAMPLES   20U
+/* Time whole sampling loops, then print one summary outside the batch.
+ * Set SAMPLE_TIMING_ENABLE to 0 for a demonstration without timing output. */
+#define SAMPLE_TIMING_ENABLE         0
+#define SAMPLE_TIMING_BATCH_SIZE  1000U
 #define NORMAL_LED_DELAY_MS       1000U
 #define FALL_LED_DELAY_MS          150U
 #define STARTUP_SETTLE_MS          500U  /* Ignore initial zero EWMA history. */
@@ -74,16 +84,15 @@ int main(void)
     BSP_ACCELERO_Init();
     BSP_GYRO_Init();
     BSP_LED_Off(LED2);
-    BSP_PB_Init(BUTTON_USER, BUTTON_MODE_GPIO); /* Active-low acknowledgement. */
+    BSP_PB_Init(BUTTON_USER, BUTTON_MODE_GPIO);
 
     /* Joining the hotspot can take seconds. Do it before starting the sampling
      * timers; a missing network must not stop the local fall detector. */
     UART_Send("Wi-Fi: initialising ThingsBoard connection...\r\n");
-    if (ThingsBoard_Init()) {
+    if (ThingsBoard_Init())
         UART_Send("Wi-Fi: connected, ThingsBoard address resolved.\r\n");
-    } else {
+    else
         UART_Send("Wi-Fi: unavailable or unconfigured; local detection active.\r\n");
-    }
 
     /* Raw sensor readings. */
     int16_t accel_raw_i16[3] = {0, 0, 0};
@@ -105,9 +114,19 @@ int main(void)
     bool low_g_active = false, rotation_active = false, ack_active = false;
     uint32_t still_since = 0;
     bool still_active = false;
+#if SAMPLE_TIMING_ENABLE
+    uint32_t batch_started_at = 0;
+    uint32_t batch_samples = 0;
+#endif
 
     while (1)
     {
+#if SAMPLE_TIMING_ENABLE
+        /* Begin after the preceding summary was fully transmitted. */
+        if (batch_samples == 0U) {
+            batch_started_at = HAL_GetTick();
+        }
+#endif
         sample_number++;
         bool report_due = (sample_number % UART_REPORT_EVERY_SAMPLES) == 0U;
 
@@ -322,9 +341,35 @@ int main(void)
 			}
         }
 
-        /* Simple pacing: processing and occasional UART output add to this
-         * 8 ms delay, so reads are not synchronised to the sensor's 104 Hz ODR. */
+        /* Pace reads below the 208 Hz sensor ODR with the measured processing
+         * time included. This simple delay is not data-ready synchronization. */
         HAL_Delay(SAMPLE_DELAY_MS);
+#if SAMPLE_TIMING_ENABLE
+        /* Measure normal operation only. Discard a batch interrupted by a fall
+         * or acknowledgement, since those transitions may block on Wi-Fi. */
+        if (state != NORMAL || previous_state != NORMAL) {
+            batch_samples = 0;
+        } else {
+            batch_samples++;
+        }
+        if (batch_samples >= SAMPLE_TIMING_BATCH_SIZE) {
+            uint32_t elapsed_ms = HAL_GetTick() - batch_started_at;
+            if (elapsed_ms > 0U) {
+                char timing_buffer[160];
+                snprintf(timing_buffer, sizeof(timing_buffer),
+                         "Sampling: %lu samples in %lu ms; avg=%.3f ms/sample; rate=%.2f Hz\r\n",
+                         (unsigned long)batch_samples, (unsigned long)elapsed_ms,
+                         (double)elapsed_ms / batch_samples,
+                         1000.0 * batch_samples / elapsed_ms);
+                UART_Send(timing_buffer);
+            }
+            /* Formatting and transmitting this summary are excluded from
+             * both batches. Whole-loop time also includes loop/timing overhead
+             * and the pacing delay (plus routine reports if enabled).
+             * Counts are loops, not guaranteed fresh sensor samples. */
+            batch_samples = 0;
+        }
+#endif
     }
 }
 

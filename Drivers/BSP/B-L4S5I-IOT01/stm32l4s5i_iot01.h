@@ -181,7 +181,8 @@ typedef enum
 #endif /* DISCOVERY_I2C_SPEED */
 
 #ifndef DISCOVERY_I2Cx_TIMING  
-#define DISCOVERY_I2Cx_TIMING                     ((uint32_t)0x00702681)
+//#define DISCOVERY_I2Cx_TIMING                     ((uint32_t)0x00702681)  // original
+#define DISCOVERY_I2Cx_TIMING                     ((uint32_t)0x00420F13)
 #endif /* DISCOVERY_I2Cx_TIMING */ 
 
 
