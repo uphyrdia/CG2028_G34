@@ -24,7 +24,7 @@
 #define EWMA_ALPHA_ACCEL_PERCENT    60
 #define EWMA_ALPHA_GYRO_PERCENT     20
 #define SAMPLE_DELAY_MS              8U
-#define REPORT_DISABLE				 0
+#define REPORT_DISABLE				 1
 #define UART_REPORT_EVERY_SAMPLES   10U
 #define NORMAL_LED_DELAY_MS       1000U
 #define FALL_LED_DELAY_MS          150U
@@ -32,7 +32,7 @@
 #define LOW_G_THRESHOLD_G          0.60f
 #define ROTATION_THRESHOLD_DPS    100.0f
 #define TRIGGER_HOLD_MS             70U  /* Either condition must last this long. */
-#define IMPACT_THRESHOLD_G         1.65f
+#define IMPACT_THRESHOLD_G         1.90f
 #define CONFIRM_TIMEOUT_MS        1000U  /* No impact in this window: return normal. */
 #define ACK_HOLD_MS               2000U
 /* Long lie requires continuously observed stillness after a confirmed fall.
@@ -40,7 +40,7 @@
  * rotation. Any sample outside these limits restarts the 30-second hold. */
 #define LONG_LIE_ACCEL_MIN_G       0.80f
 #define LONG_LIE_ACCEL_MAX_G       1.20f
-#define LONG_LIE_GYRO_MAX_DPS      40.0f
+#define LONG_LIE_GYRO_MAX_DPS      50.0f
 #define LONG_LIE_HOLD_MS          30000U
 
 static void UART1_Init(void);
@@ -85,7 +85,11 @@ int main(void)
         UART_Send("Wi-Fi: unavailable or unconfigured; local detection active.\r\n");
     }
 
-    /* Previous EWMA outputs. The first test/application sample starts from 0. */
+    /* Raw sensor readings. */
+    int16_t accel_raw_i16[3] = {0, 0, 0};
+    float gyro_raw_float[3] = {0.0f, 0.0f, 0.0f};
+
+    /* EWMA outputs. */
     int accel_ewma_asm[3] = {0, 0, 0};
     int gyro_ewma_asm[3]  = {0, 0, 0};
 
@@ -107,8 +111,6 @@ int main(void)
         sample_number++;
         bool report_due = (sample_number % UART_REPORT_EVERY_SAMPLES) == 0U;
 
-        int16_t accel_raw_i16[3] = {0, 0, 0};
-        float gyro_raw_float[3] = {0.0f, 0.0f, 0.0f};
         int gyro_raw_int[3] = {0, 0, 0};
 
         BSP_ACCELERO_AccGetXYZ(accel_raw_i16);

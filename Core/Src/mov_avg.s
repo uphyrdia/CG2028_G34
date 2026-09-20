@@ -15,7 +15,7 @@
 @ CG2028 Assignment
 @ (c) ECE NUS
 @ Write Student 1's Name here: ABCD (A1234567R)
-@ Write Student 2's Name here: WXYZ (A0000007X)
+@ Write Student 2's Name here: Chen Xingtong (A0300595H)
 @
 @ Function prototype:
 @   int ewma_filter(int new_data, int old_output, int alpha_percent);
@@ -33,24 +33,18 @@
 @ - Preserve all callee-saved registers that you use (R4-R11).
 @ - Do not call a C helper function and do not use floating-point instructions.
 @
-@ Register table:
-@   R0 = new_data on entry; weighted product, then weighted sum; filtered output on return
-@   R1 = old_output (unchanged)
-@   R2 = alpha_percent on entry; then 100 - alpha_percent; finally 100 for signed division
-@   R3 = Not used
-@   R4 = Not used
-@
-@ Write your program from here.
+@ Register usage:
+@   R0 = new_data -> weighted product -> weighted sum -> filtered output
+@   R1 = old_output (never modified)
+@   R2 = alpha_percent -> (100 - alpha_percent) -> 100 (the divisor)
+@   R3-R11 = not used
+
 ewma_filter:
-    @ PUSH {r4-r7, lr}
-
-    MUL  r0, r2          	 @ new_data *= alpha_percent.
-    RSB  r2, r2, #100        @ Reuse R2 for 100 - alpha_percent.
-    MLA  r0, r1, r2, r0      @ Add (100 - alpha_percent) * old_output.
-    MOVS r2, #100            @ Reuse R2 for the divisor. S-suffix saves 2 bytes of encoding the instruction.
-    SDIV r0, r2              @ Signed division by 100 truncates towards zero.
-
-    @ POP  {r4-r7, pc}
-    BX lr
+    MUL  r0, r2              @ R0 = new_data * alpha_percent
+    RSB  r2, r2, #100        @ R2 = 100 - alpha_percent (alpha is finished with)
+    MLA  r0, r1, r2, r0      @ R0 = old_output * (100 - alpha) + R0
+    MOVS r2, #100            @ R2 = divisor. MOVS saves 2 bytes of encoding the instruction.
+    SDIV r0, r2              @ R0 = R0 / 100, truncated towards zero
+    BX   lr                  @ Result is already in R0, return to caller
 
 .size ewma_filter, .-ewma_filter

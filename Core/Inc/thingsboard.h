@@ -9,7 +9,8 @@
  * Do not commit real passwords or access tokens to a public repository. */
 #define WIFI_SSID                   "utakata"
 #define WIFI_PASSWORD               "phrolova"
-#define THINGSBOARD_ACCESS_TOKEN    "hifratol541vfu6wfmi6" // "804rcl3a1oxmcx3ock9k"
+//#define THINGSBOARD_ACCESS_TOKEN    "hifratol541vfu6wfmi6"
+#define THINGSBOARD_ACCESS_TOKEN    "804rcl3a1oxmcx3ock9k"
 #define WIFI_SECURITY               WIFI_ECN_WPA2_PSK
 
 /* Hostname only: no http:// prefix or path. Match the server hosting your device.
