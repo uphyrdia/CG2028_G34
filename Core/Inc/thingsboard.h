@@ -21,11 +21,12 @@
 #define THINGSBOARD_IO_TIMEOUT_MS   5000U  /* Server send/receive wait, in ms.
                                            * Driver commands separately use 30000 ms. */
 
-/* Blocking calls: initialise before sampling; upload on fall/acknowledgement.
+/* Blocking calls: initialise before sampling; upload on fall/long-lie/acknowledgement.
  * False means unavailable/not confirmed delivered; it never stops the program. */
 bool ThingsBoard_Init(void);
 bool ThingsBoard_SendFall(float acceleration_g, float angular_velocity_dps,
                          uint32_t detected_at_ms);
 bool ThingsBoard_SendNormal(void);
+bool ThingsBoard_SendLongLie(void);
 
 #endif

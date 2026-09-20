@@ -46,10 +46,16 @@ bool ThingsBoard_SendNormal(void)
     return ThingsBoard_SendTelemetry("{\"state\":\"NORMAL\"}");
 }
 
+bool ThingsBoard_SendLongLie(void)
+{
+    /* Escalate the state while retaining the fall's sensor snapshot and time. */
+    return ThingsBoard_SendTelemetry("{\"state\":\"LONG_LIE\"}");
+}
+
 static bool ThingsBoard_SendTelemetry(const char *json)
 {
     /* Retry connection setup after an earlier failure, but only when called for
-     * a fall or its acknowledgement; no periodic retries in the sensor loop. */
+     * a fall, long lie or acknowledgement; no periodic retries in the sensor loop. */
     if (!network_ready && !ThingsBoard_Init()) return false;
 
     char request[768];

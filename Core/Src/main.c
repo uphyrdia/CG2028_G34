@@ -19,13 +19,13 @@
 #include <math.h>
 
 /*--------------------------- Configuration ----------------------------------*/
-/* Parameters apply to the assembly-filtered readings. The sensors run at 52 Hz.
- * Alpha 75% helps retain the short low-g interval and landing peak of a drop. */
-#define EWMA_ALPHA_ACCEL_PERCENT    85
-#define EWMA_ALPHA_GYRO_PERCENT     35
-#define SAMPLE_DELAY_MS             20U
+/* Both sensors produce measurements at 104 Hz. The accelerometer range is
+ * +/-8 g per axis. Application readings are in g and degrees per second. */
+#define EWMA_ALPHA_ACCEL_PERCENT    60
+#define EWMA_ALPHA_GYRO_PERCENT     20
+#define SAMPLE_DELAY_MS              8U
 #define REPORT_DISABLE				 0
-#define UART_REPORT_EVERY_SAMPLES    5U  /* Change to 5 for more frequent reports. */
+#define UART_REPORT_EVERY_SAMPLES   10U
 #define NORMAL_LED_DELAY_MS       1000U
 #define FALL_LED_DELAY_MS          150U
 #define STARTUP_SETTLE_MS          500U  /* Ignore initial zero EWMA history. */
@@ -35,6 +35,13 @@
 #define IMPACT_THRESHOLD_G         1.65f
 #define CONFIRM_TIMEOUT_MS        1000U  /* No impact in this window: return normal. */
 #define ACK_HOLD_MS               2000U
+/* Long lie requires continuously observed stillness after a confirmed fall.
+ * Acceleration near 1 g allows any resting orientation; the gyro limit rejects
+ * rotation. Any sample outside these limits restarts the 30-second hold. */
+#define LONG_LIE_ACCEL_MIN_G       0.80f
+#define LONG_LIE_ACCEL_MAX_G       1.20f
+#define LONG_LIE_GYRO_MAX_DPS      40.0f
+#define LONG_LIE_HOLD_MS          30000U
 
 static void UART1_Init(void);
 static void UART_Send(const char *text);
@@ -47,11 +54,12 @@ UART_HandleTypeDef huart1;
 typedef enum {
     NORMAL,
     CONFIRMING,
-    FALL_CONFIRMED
+    FALL_CONFIRMED,
+    LONG_LIE
 } WearableState;
 
 static const char *const state_names[] = {
-    "NORMAL", "CONFIRMING", "FALL_CONFIRMED"
+    "NORMAL", "CONFIRMING", "FALL_CONFIRMED", "LONG_LIE"
 };
 
 float norm(float *v) {
@@ -91,6 +99,8 @@ int main(void)
     uint32_t led_toggled_at = startup_at;
     uint32_t low_g_since = 0, rotation_since = 0, confirming_since = 0, ack_since = 0;
     bool low_g_active = false, rotation_active = false, ack_active = false;
+    uint32_t still_since = 0;
+    bool still_active = false;
 
     while (1)
     {
@@ -104,9 +114,9 @@ int main(void)
         BSP_ACCELERO_AccGetXYZ(accel_raw_i16);
         BSP_GYRO_GetXYZ(gyro_raw_float);
 
-        /* The supplied BSP reports gyroscope readings as floating-point raw
-         * values. Convert them to signed integers before passing them to the
-         * integer assembly routine. */
+        /* The BSP returns acceleration in integer mg (1 mg = 0.001 g) and
+         * angular velocity in floating-point mdps (0.001 degrees/second).
+         * Convert mdps to signed integers for the assembly filter. */
         for (int axis = 0; axis < 3; axis++)
         {
             gyro_raw_int[axis] = (int)gyro_raw_float[axis];
@@ -132,14 +142,14 @@ int main(void)
                 EWMA_ALPHA_GYRO_PERCENT);
         }
 
-        /* Accelerometer filtered readings are in meters per second squared. */
+        /* Convert the assembly-filtered acceleration from mg to g. */
         float accel_axes_g[3] = {
             accel_ewma_asm[0] / 1000.0f,
             accel_ewma_asm[1] / 1000.0f,
             accel_ewma_asm[2] / 1000.0f
         };
 
-        /* Gyroscope filtered readings are in degrees per second. */
+        /* Convert the assembly-filtered angular velocity from mdps to dps. */
         float gyro_dps[3] = {
             gyro_ewma_asm[0] / 1000.0f,
             gyro_ewma_asm[1] / 1000.0f,
@@ -161,7 +171,9 @@ int main(void)
         /**************** Elderly wearable state logic starts here *************
          * NORMAL -> sustained low-g OR rapid rotation -> CONFIRMING
          * CONFIRMING -> impact peak -> FALL_CONFIRMED
-         * No impact before timeout -> NORMAL. Hold USER to clear a latched fall.
+         * FALL_CONFIRMED -> 30 seconds of continuous stillness -> LONG_LIE
+         * No impact before timeout -> NORMAL. Hold USER for over 2 seconds to
+         * return to NORMAL from either latched alarm state.
          *********************************************************************/
         uint32_t now = HAL_GetTick();
         WearableState previous_state = state;
@@ -203,25 +215,46 @@ int main(void)
             }
         }
 
-        if (state == FALL_CONFIRMED) {
-        	// If BUTTON_USER is pressed down for more than ACK_HOLD_MS, reset to NORMAL state
+        /* Acknowledgement takes priority if its hold completes on the same
+         * sample as the long-lie timer. Releasing USER restarts its hold. */
+        if (state == FALL_CONFIRMED || state == LONG_LIE) {
             if (BSP_PB_GetState(BUTTON_USER) == GPIO_PIN_RESET) {
                 if (!ack_active) ack_since = now;
                 ack_active = true;
-                if (now - ack_since >= ACK_HOLD_MS) {
+                if (now - ack_since > ACK_HOLD_MS) {
                     state = NORMAL;
                     startup_at = now;
                     ack_active = false;
+                    still_active = false;
                 }
             } else {
                 ack_active = false;
             }
         }
 
-        /* LED timing never sets the sensor delay. A confirmed fall stays ON. */
+        if (state == FALL_CONFIRMED) {
+            /* Use magnitudes from the assembly-filtered axes. Stillness is
+             * continuous, not accumulated across separate quiet periods. */
+            bool still = accel_g >= LONG_LIE_ACCEL_MIN_G &&
+                         accel_g <= LONG_LIE_ACCEL_MAX_G &&
+                         angular_dps < LONG_LIE_GYRO_MAX_DPS;
+            if (still) {
+                if (!still_active) still_since = now;
+                still_active = true;
+                if (now - still_since >= LONG_LIE_HOLD_MS) {
+                    state = LONG_LIE;
+                    still_active = false;
+                }
+            } else {
+                still_active = false;
+            }
+        }
+
+        /* Both alarm states keep LED2 ON until USER acknowledgement, even if
+         * movement resumes after LONG_LIE. Other states retain their blinking. */
         uint32_t blink_ms = (state == CONFIRMING)
                             ? FALL_LED_DELAY_MS : NORMAL_LED_DELAY_MS;
-        if (state == FALL_CONFIRMED || state != previous_state) {
+        if (state == FALL_CONFIRMED || state == LONG_LIE || state != previous_state) {
             BSP_LED_On(LED2);
             led_toggled_at = now;
         } else if (now - led_toggled_at >= blink_ms) {
@@ -231,7 +264,7 @@ int main(void)
 
         /* LED has already been latched ON above. Upload once on this transition,
          * not on every sample while the fall remains latched. Networking runs
-         * only on fall/acknowledgement transitions, so button polling and
+         * only on fall/long-lie/acknowledgement transitions, so button polling and
          * sampling pause during the attempt, but the LED stays ON throughout. */
         if (state == FALL_CONFIRMED && previous_state != FALL_CONFIRMED) {
             UART_Send("Wi-Fi: sending confirmed fall...\r\n");
@@ -243,7 +276,20 @@ int main(void)
             /* A button press during a blocking upload was not continuously
              * sampled. Start its hold timer afresh rather than counting that gap. */
             ack_active = false;
-        } else if (state == NORMAL && previous_state == FALL_CONFIRMED) {
+            /* Start observing stillness with fresh samples after the upload.
+             * Time spent blocked on Wi-Fi is not evidence of a long lie. */
+            still_active = false;
+        } else if (state == LONG_LIE && previous_state != LONG_LIE) {
+            UART_Send("Wi-Fi: sending long lie...\r\n");
+            if (ThingsBoard_SendLongLie()) {
+                UART_Send("ThingsBoard: long lie accepted (HTTP 200).\r\n");
+            } else {
+                UART_Send("ThingsBoard: long lie delivery not confirmed; LED stays ON.\r\n");
+            }
+            /* As for a fall upload, do not count an unobserved button hold. */
+            ack_active = false;
+        } else if (state == NORMAL &&
+                   (previous_state == FALL_CONFIRMED || previous_state == LONG_LIE)) {
             /* Only an accepted USER-button hold takes this path. A confirming
              * timeout must not send a recovery update. Give immediate local
              * feedback before the blocking request, even if the network fails. */
@@ -262,10 +308,6 @@ int main(void)
 
         if (!REPORT_DISABLE) {
 			char buffer[320];
-			if (state != previous_state) {
-				snprintf(buffer, sizeof(buffer), "State: %s\r\n", state_names[state]);
-				UART_Send(buffer);
-			}
 			if (report_due) {
 				snprintf(buffer, sizeof(buffer),
 						 "Sample %lu [%s] |A|=%.2fg |W|=%.1fdps\r\n"
@@ -279,7 +321,7 @@ int main(void)
         }
 
         /* Simple pacing: processing and occasional UART output add to this
-         * delay, so the sampling interval is approximate, not exactly 20 ms. */
+         * 8 ms delay, so reads are not synchronised to the sensor's 104 Hz ODR. */
         HAL_Delay(SAMPLE_DELAY_MS);
     }
 }
