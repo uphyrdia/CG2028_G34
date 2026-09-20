@@ -14,7 +14,7 @@
 
 @ CG2028 Assignment
 @ (c) ECE NUS
-@ Write Student 1's Name here: ABCD (A1234567R)
+@ Write Student 1's Name here: Aarav Bindawala (A0305968N)
 @ Write Student 2's Name here: Chen Xingtong (A0300595H)
 @
 @ Function prototype:
