@@ -29,7 +29,7 @@
  * gives roughly 5-6 ms per loop, longer than the 4.81 ms sensor period.
  * Recheck this pacing if CPU speed, I2C timing or processing changes. */
 #define SAMPLE_DELAY_MS              4U
-#define REPORT_DISABLE				 1  /* Disable routine sensor reports while measuring. */
+#define REPORT_DISABLE				 0  /* Disable routine sensor reports while measuring. */
 /* Roughly preserve the old reporting interval as the loop rate doubles. */
 #define UART_REPORT_EVERY_SAMPLES   20U
 /* Time whole sampling loops, then print one summary outside the batch.
@@ -42,7 +42,7 @@
 #define LOW_G_THRESHOLD_G          0.60f
 #define ROTATION_THRESHOLD_DPS    100.0f
 #define TRIGGER_HOLD_MS             70U  /* Either condition must last this long. */
-#define IMPACT_THRESHOLD_G         1.90f
+#define IMPACT_THRESHOLD_G         2.40f
 #define CONFIRM_TIMEOUT_MS        1000U  /* No impact in this window: return normal. */
 #define ACK_HOLD_MS               2000U
 /* Long lie requires continuously observed stillness after a confirmed fall.
