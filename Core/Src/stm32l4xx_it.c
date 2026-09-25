@@ -188,6 +188,7 @@ void SysTick_Handler(void)
   /* USER CODE END SysTick_IRQn 0 */
   HAL_IncTick();
   /* USER CODE BEGIN SysTick_IRQn 1 */
+  Wearable_LED_Tick();
 
   /* USER CODE END SysTick_IRQn 1 */
 }

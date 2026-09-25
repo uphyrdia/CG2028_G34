@@ -29,15 +29,15 @@
  * gives roughly 5-6 ms per loop, longer than the 4.81 ms sensor period.
  * Recheck this pacing if CPU speed, I2C timing or processing changes. */
 #define SAMPLE_DELAY_MS              4U
-#define REPORT_DISABLE				 0  /* Disable routine sensor reports while measuring. */
+#define REPORT_DISABLE				 1  /* Disable routine sensor reports while measuring. */
 /* Roughly preserve the old reporting interval as the loop rate doubles. */
 #define UART_REPORT_EVERY_SAMPLES   20U
 /* Time whole sampling loops, then print one summary outside the batch.
  * Set SAMPLE_TIMING_ENABLE to 0 for a demonstration without timing output. */
 #define SAMPLE_TIMING_ENABLE         0
 #define SAMPLE_TIMING_BATCH_SIZE  1000U
-#define NORMAL_LED_DELAY_MS       1000U
-#define FALL_LED_DELAY_MS          150U
+#define NORMAL_LED_DELAY_MS       1000U  /* Toggle interval before confirmation. */
+#define FALL_LED_DELAY_MS          150U  /* Toggle interval in both alarm states. */
 #define STARTUP_SETTLE_MS          500U  /* Ignore initial zero EWMA history. */
 #define LOW_G_THRESHOLD_G          0.60f
 #define ROTATION_THRESHOLD_DPS    100.0f
@@ -60,6 +60,31 @@ extern int ewma_filter(int new_data, int old_output, int alpha_percent);
 int ewma_filter_C(int new_data, int old_output, int alpha_percent);
 
 UART_HandleTypeDef huart1;
+
+//Main selects the blink period.
+static volatile uint32_t led_blink_period_ms = 0;
+
+//This is called by SysTick_Handler(), which interrupts main() every 1ms,
+//such that LED can keep blinking when the main loop is blocked.
+void Wearable_LED_Tick(void)
+{
+    static uint32_t previous_period_ms = 0;
+    static uint32_t toggled_at = 0;
+    uint32_t period_ms = led_blink_period_ms;
+
+    //Zero return prevents GPIO access before LED initialization is complete.
+    if (period_ms == 0U) return;
+
+    uint32_t now = HAL_GetTick();
+    if (period_ms != previous_period_ms) {
+        previous_period_ms = period_ms;
+        toggled_at = now;
+        BSP_LED_On(LED2);
+    } else if (now - toggled_at >= period_ms) {
+        BSP_LED_Toggle(LED2);
+        toggled_at = now;
+    }
+}
 
 typedef enum {
     NORMAL,
@@ -109,7 +134,7 @@ int main(void)
     unsigned long sample_number = 0;
     WearableState state = NORMAL;
     uint32_t startup_at = HAL_GetTick();
-    uint32_t led_toggled_at = startup_at;
+    led_blink_period_ms = NORMAL_LED_DELAY_MS;
     uint32_t low_g_since = 0, rotation_since = 0, confirming_since = 0, ack_since = 0;
     bool low_g_active = false, rotation_active = false, ack_active = false;
     uint32_t still_since = 0;
@@ -271,28 +296,20 @@ int main(void)
             }
         }
 
-        /* Both alarm states keep LED2 ON until USER acknowledgement, even if
-         * movement resumes after LONG_LIE. Other states retain their blinking. */
-        uint32_t blink_ms = (state == CONFIRMING)
-                            ? FALL_LED_DELAY_MS : NORMAL_LED_DELAY_MS;
-        if (state == FALL_CONFIRMED || state == LONG_LIE || state != previous_state) {
-            BSP_LED_On(LED2);
-            led_toggled_at = now;
-        } else if (now - led_toggled_at >= blink_ms) {
-            BSP_LED_Toggle(LED2);
-            led_toggled_at = now;
-        }
+        /* Rapid blinking begins only after confirmation and continues through
+         * LONG_LIE until acknowledgement. SysTick keeps it running even when
+         * the main loop is blocked in UART or Wi-Fi calls. */
+        led_blink_period_ms = (state == FALL_CONFIRMED || state == LONG_LIE)
+                             ? FALL_LED_DELAY_MS : NORMAL_LED_DELAY_MS;
 
-        /* LED has already been latched ON above. Upload once on this transition,
-         * not on every sample while the fall remains latched. Networking runs
-         * only on fall/long-lie/acknowledgement transitions, so button polling and
-         * sampling pause during the attempt, but the LED stays ON throughout. */
+        /* Upload once per fall/long-lie/acknowledgement transition. Sampling
+         * and button polling pause during the attempt; LED blinking continues. */
         if (state == FALL_CONFIRMED && previous_state != FALL_CONFIRMED) {
             UART_Send("Wi-Fi: sending confirmed fall...\r\n");
             if (ThingsBoard_SendFall(accel_g, angular_dps, now)) {
                 UART_Send("ThingsBoard: fall accepted (HTTP 200).\r\n");
             } else {
-                UART_Send("ThingsBoard: fall delivery not confirmed; LED stays ON.\r\n");
+                UART_Send("ThingsBoard: fall delivery not confirmed; alarm keeps blinking.\r\n");
             }
             /* A button press during a blocking upload was not continuously
              * sampled. Start its hold timer afresh rather than counting that gap. */
@@ -305,7 +322,7 @@ int main(void)
             if (ThingsBoard_SendLongLie()) {
                 UART_Send("ThingsBoard: long lie accepted (HTTP 200).\r\n");
             } else {
-                UART_Send("ThingsBoard: long lie delivery not confirmed; LED stays ON.\r\n");
+                UART_Send("ThingsBoard: long lie delivery not confirmed; alarm keeps blinking.\r\n");
             }
             /* As for a fall upload, do not count an unobserved button hold. */
             ack_active = false;
@@ -314,17 +331,15 @@ int main(void)
             /* Only an accepted USER-button hold takes this path. A confirming
              * timeout must not send a recovery update. Give immediate local
              * feedback before the blocking request, even if the network fails. */
-            BSP_LED_Off(LED2);
             UART_Send("Wi-Fi: sending normal state...\r\n");
             if (ThingsBoard_SendNormal()) {
                 UART_Send("ThingsBoard: normal state accepted (HTTP 200).\r\n");
             } else {
                 UART_Send("ThingsBoard: normal delivery not confirmed; local state is NORMAL.\r\n");
             }
-            /* Resume slow blinking and allow fresh samples to settle after the
-             * network pause, rather than counting that pause as sampled time. */
+            /* Allow fresh samples to settle after the network pause, rather
+             * than counting that pause as sampled time. */
             startup_at = HAL_GetTick();
-            led_toggled_at = startup_at;
         }
 
         if (!REPORT_DISABLE) {

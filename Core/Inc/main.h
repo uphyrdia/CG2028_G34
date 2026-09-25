@@ -53,6 +53,8 @@ extern "C" {
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
+/* Non-blocking LED update called by the 1 ms system tick. */
+void Wearable_LED_Tick(void);
 
 /* USER CODE END EFP */
 
