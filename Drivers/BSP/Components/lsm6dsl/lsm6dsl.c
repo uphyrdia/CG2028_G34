@@ -36,6 +36,12 @@
 /** @defgroup LSM6DSL_Private_Variables LSM6DSL Private Variables
   * @{
   */ 
+/* Cached scale factors for the board's single LSM6DSL. Initialization updates
+ * these from the configured full-scale bits; sampling needs no control reads.
+ * After a sensor reset or range change, run the corresponding Init again. */
+static float accel_sensitivity = LSM6DSL_ACC_SENSITIVITY_2G;    /* mg/LSB */
+static float gyro_sensitivity = LSM6DSL_GYRO_SENSITIVITY_245DPS; /* mdps/LSB */
+
 ACCELERO_DrvTypeDef Lsm6dslAccDrv =
 {
   LSM6DSL_AccInit,
@@ -93,6 +99,23 @@ void LSM6DSL_AccInit(uint16_t InitStruct)
   tmp &= ~(0xFC);
   tmp |= ctrl;
   SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_CTRL1_XL, tmp);
+
+  /* Cache the selected conversion factor once, rather than every sample. */
+  switch(tmp & 0x0C)
+  {
+  case LSM6DSL_ACC_FULLSCALE_2G:
+    accel_sensitivity = LSM6DSL_ACC_SENSITIVITY_2G;
+    break;
+  case LSM6DSL_ACC_FULLSCALE_4G:
+    accel_sensitivity = LSM6DSL_ACC_SENSITIVITY_4G;
+    break;
+  case LSM6DSL_ACC_FULLSCALE_8G:
+    accel_sensitivity = LSM6DSL_ACC_SENSITIVITY_8G;
+    break;
+  case LSM6DSL_ACC_FULLSCALE_16G:
+    accel_sensitivity = LSM6DSL_ACC_SENSITIVITY_16G;
+    break;
+  }
 
   /* Read CTRL3_C */
   tmp = SENSOR_IO_Read(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_CTRL3_C);
@@ -161,6 +184,42 @@ void LSM6DSL_AccLowPower(uint16_t status)
   
   /* write back control register */
   SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_CTRL6_C, ctrl);
+}
+
+/**
+  * @brief  Read all six motion axes in one I2C transaction.
+  * @param  pData: Three accelerometer outputs (X/Y/Z), in integer mg.
+  * @param  pfData: Three gyroscope outputs (X/Y/Z), in floating-point mdps.
+  * @note   Call both sensor Init functions successfully before use, with
+  *         IF_INC and BDU enabled and the default little-endian output format.
+  *         BDU protects each 16-bit value; it does not guarantee that all six
+  *         axes represent exactly the same conversion instant.
+  * @note   On an I2C error, leave both output arrays unchanged (last readings).
+  */
+void LSM6DSL_readXYZ(int16_t *pData, float *pfData)
+{
+  uint8_t buffer[12];
+  uint8_t i;
+
+  /* 0x22..0x27: gyro XYZ; 0x28..0x2D: accelerometer XYZ.
+   * Auto-increment crosses the boundary between the two output blocks. */
+  if(SENSOR_IO_ReadMultiple(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW,
+                           LSM6DSL_ACC_GYRO_OUTX_L_G, buffer, 12) != 0U)
+  {
+    return;
+  }
+
+  for(i = 0; i < 3; i++)
+  {
+    int16_t raw_gyro = (int16_t)(((uint16_t)buffer[2*i+1] << 8) |
+                                buffer[2*i]);
+    int16_t raw_accel = (int16_t)(((uint16_t)buffer[2*i+7] << 8) |
+                                 buffer[2*i+6]);
+
+    /* Preserve the units and integer truncation of the existing BSP API. */
+    pfData[i] = raw_gyro * gyro_sensitivity;
+    pData[i] = (int16_t)(raw_accel * accel_sensitivity);
+  }
 }
 
 /**
@@ -237,6 +296,30 @@ void LSM6DSL_GyroInit(uint16_t InitStruct)
   tmp &= ~(0xFC);
   tmp |= ctrl;
   SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_CTRL2_G, tmp);
+
+  /* FS_125 (bit 1) overrides FS_G if that optional range is selected. */
+  if(tmp & 0x02)
+  {
+    gyro_sensitivity = 4.375f; /* mdps/LSB at +/-125 dps */
+  }
+  else
+  {
+    switch(tmp & 0x0C)
+    {
+    case LSM6DSL_GYRO_FS_245:
+      gyro_sensitivity = LSM6DSL_GYRO_SENSITIVITY_245DPS;
+      break;
+    case LSM6DSL_GYRO_FS_500:
+      gyro_sensitivity = LSM6DSL_GYRO_SENSITIVITY_500DPS;
+      break;
+    case LSM6DSL_GYRO_FS_1000:
+      gyro_sensitivity = LSM6DSL_GYRO_SENSITIVITY_1000DPS;
+      break;
+    case LSM6DSL_GYRO_FS_2000:
+      gyro_sensitivity = LSM6DSL_GYRO_SENSITIVITY_2000DPS;
+      break;
+    }
+  }
 
   /* Read CTRL3_C */
   tmp = SENSOR_IO_Read(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_CTRL3_C);

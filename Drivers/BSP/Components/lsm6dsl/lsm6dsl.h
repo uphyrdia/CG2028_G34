@@ -200,10 +200,10 @@ extern "C" {
 #define LSM6DSL_ACC_FULLSCALE_16G         ((uint8_t)0x04) /*!< ±16 g */
 
 /* Accelero Full Scale Sensitivity */
-#define LSM6DSL_ACC_SENSITIVITY_2G     ((float)0.061f)  /*!< accelerometer sensitivity with 2 g full scale  [mgauss/LSB] */
-#define LSM6DSL_ACC_SENSITIVITY_4G     ((float)0.122f)  /*!< accelerometer sensitivity with 4 g full scale  [mgauss/LSB] */
-#define LSM6DSL_ACC_SENSITIVITY_8G     ((float)0.244f)  /*!< accelerometer sensitivity with 8 g full scale  [mgauss/LSB] */
-#define LSM6DSL_ACC_SENSITIVITY_16G    ((float)0.488f)  /*!< accelerometer sensitivity with 12 g full scale [mgauss/LSB] */
+#define LSM6DSL_ACC_SENSITIVITY_2G     ((float)0.061f)  /*!< accelerometer sensitivity with 2 g full scale  [mg/LSB] */
+#define LSM6DSL_ACC_SENSITIVITY_4G     ((float)0.122f)  /*!< accelerometer sensitivity with 4 g full scale  [mg/LSB] */
+#define LSM6DSL_ACC_SENSITIVITY_8G     ((float)0.244f)  /*!< accelerometer sensitivity with 8 g full scale  [mg/LSB] */
+#define LSM6DSL_ACC_SENSITIVITY_16G    ((float)0.488f)  /*!< accelerometer sensitivity with 16 g full scale [mg/LSB] */
 
 /* Accelero Power Mode selection */
 #define LSM6DSL_ACC_GYRO_LP_XL_DISABLED     ((uint8_t)0x00) /* LP disabled*/
@@ -259,6 +259,10 @@ void    LSM6DSL_AccDeInit(void);
 uint8_t LSM6DSL_AccReadID(void);
 void    LSM6DSL_AccLowPower(uint16_t status);
 void    LSM6DSL_AccReadXYZ(int16_t* pData);
+/* Combined read after both Init calls: accel[3] in mg, gyro[3] in mdps.
+ * Uses cached ranges; reinitialize after changing full-scale registers.
+ * Requires IF_INC, BDU and little-endian output. I2C errors leave arrays intact. */
+void    LSM6DSL_readXYZ(int16_t *pData, float *pfData);
 /**
   * @}
   */
