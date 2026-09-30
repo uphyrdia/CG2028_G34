@@ -113,6 +113,9 @@ int main(void)
     BSP_LED_Off(LED2);
     BSP_PB_Init(BUTTON_USER, BUTTON_MODE_GPIO);
 
+//    BSP_ACCELERO_LowPower(1);
+//    BSP_GYRO_LowPower(1);
+
     /* Joining the hotspot can take seconds. Do it before starting the sampling
      * timers; a missing network must not stop the local fall detector. */
     UART_Send("Wi-Fi: initialising ThingsBoard connection...\r\n");
