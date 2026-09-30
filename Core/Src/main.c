@@ -29,13 +29,13 @@
 /* SAMPLE_DELAY_MS is to introduce extra sampling delay such that the loop rate
  * does not exceed ODR of the sensors causing oversampling. */
 #define SAMPLE_DELAY_MS              2U
-#define REPORT_DISABLE				 1  /* Disable routine sensor reports while measuring. */
+#define REPORT_DISABLE				 0  /* Disable routine sensor reports while measuring. */
 /* Roughly preserve the old reporting interval as the loop rate doubles. */
 #define UART_REPORT_EVERY_SAMPLES   20U
 
 /* Time whole sampling loops, then print one summary outside the batch.
  * Set SAMPLE_TIMING_ENABLE to 0 for a demonstration without timing output. */
-#define SAMPLE_TIMING_ENABLE         1
+#define SAMPLE_TIMING_ENABLE         0
 #define SAMPLE_TIMING_BATCH_SIZE  1000U
 
 #define NORMAL_LED_DELAY_MS       1000U  /* Toggle interval before confirmation. */
@@ -70,19 +70,26 @@ static volatile uint32_t led_blink_period_ms = 0;
 //such that LED can keep blinking when the main loop is blocked.
 void Wearable_LED_Tick(void)
 {
+    /* Static variables retain the blink timing between calls. */
     static uint32_t previous_period_ms = 0;
     static uint32_t toggled_at = 0;
+
+    /* Read the interval selected by main once for this call.
+     * This is the time between toggles; a full ON/OFF cycle takes twice as long. */
     uint32_t period_ms = led_blink_period_ms;
 
-    //Zero return prevents GPIO access before LED initialization is complete.
+    /* Zero prevents GPIO access before LED initialization is complete. */
     if (period_ms == 0U) return;
 
     uint32_t now = HAL_GetTick();
     if (period_ms != previous_period_ms) {
+        /* A new interval starts a fresh blink pattern with the LED ON. */
         previous_period_ms = period_ms;
         toggled_at = now;
         BSP_LED_On(LED2);
     } else if (now - toggled_at >= period_ms) {
+        /* Toggle only when the interval expires, not on every SysTick.
+         * Unsigned subtraction also handles the tick counter wrapping. */
         BSP_LED_Toggle(LED2);
         toggled_at = now;
     }
@@ -99,6 +106,7 @@ static const char *const state_names[] = {
     "NORMAL", "CONFIRMING", "FALL_CONFIRMED", "LONG_LIE"
 };
 
+// to compute the magnitude of the acceleration and angular velocity
 float norm(float *v) {
 	return sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
 }
@@ -232,31 +240,54 @@ int main(void)
         float accel_g = norm(accel_axes_g);
         float angular_dps = norm(gyro_dps);
 
+        /* Check for an initial fall trigger only in NORMAL.
+         * The startup delay lets the EWMA outputs settle from their initial zeros,
+         * which could otherwise look like low-g even while the board is stationary. */
         if (state == NORMAL && now - startup_at >= STARTUP_SETTLE_MS) {
-            /* Separate timers: alternating brief low-g and rotation readings
-             * must not combine into one sustained trigger. */
+
+            /* Track how long low-g persists across consecutive samples.
+             * Start timing at the first qualifying sample; keep that timestamp
+             * unchanged while subsequent samples remain below the threshold. */
             if (accel_g < LOW_G_THRESHOLD_G) {
                 if (!low_g_active) low_g_since = now;
                 low_g_active = true;
             } else {
+                /* Low-g has ended. The next low-g sample starts a new interval.
+                 * No need to clear low_g_since: it will be overwritten then. */
                 low_g_active = false;
             }
+
+            /* Independently track sustained rapid rotation.
+             * Separate timers prevent alternating brief low-g and rotation events
+             * from being combined into one apparently sustained trigger. */
             if (angular_dps > ROTATION_THRESHOLD_DPS) {
                 if (!rotation_active) rotation_since = now;
                 rotation_active = true;
             } else {
+                /* Rotation is no longer above the threshold; cancel this interval. */
                 rotation_active = false;
             }
 
+            /* Either condition must remain true at every sampled check for at least
+             * TRIGGER_HOLD_MS. This rejects isolated spikes and brief movements.
+             * The active flag ensures an old timestamp cannot trigger by itself.
+             * Both conditions are not required: a straight drop may have no rotation. */
             if ((low_g_active && now - low_g_since >= TRIGGER_HOLD_MS) ||
                 (rotation_active && now - rotation_since >= TRIGGER_HOLD_MS)) {
+
+                /* Sustained evidence starts the impact-confirmation window.
+                 * This is a suspected fall; an impact is still needed to confirm it. */
                 state = CONFIRMING;
                 confirming_since = now;
+
+                /* Clear the trigger tracking so a future NORMAL episode must
+                 * establish fresh evidence rather than reuse these intervals. */
                 low_g_active = false;
                 rotation_active = false;
             }
         }
 
+        // transition from CONFIRMING to FALL_CONFIRMED
         if (state == CONFIRMING) {
             if (now - confirming_since >= CONFIRM_TIMEOUT_MS) {
                 state = NORMAL;
